@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Zen Flow - AI Augmented Loop</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #050505;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+        .ui-overlay {
+            position: absolute;
+            top: 2rem;
+            left: 2rem;
+            pointer-events: none;
+            color: rgba(255, 255, 255, 0.4);
+            transition: opacity 0.5s ease;
+        }
+        .hint {
+            position: absolute;
+            bottom: 2rem;
+            width: 100%;
+            text-align: center;
+            color: rgba(255, 255, 255, 0.2);
+            pointer-events: none;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            animation: pulse 3s infinite ease-in-out;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 0.2; }
+            50% { opacity: 0.5; }
+        }
+        #controls {
+            position: absolute;
+            top: 2rem;
+            right: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 1rem;
+            pointer-events: auto;
+        }
+        .control-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 999px;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            transition: all 0.2s ease;
+            font-size: 0.875rem;
+        }
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+        #ai-input-container {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+        #aiPrompt {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: white;
+            border-radius: 8px;
+            padding: 0.4rem 0.8rem;
+            font-size: 0.8rem;
+            width: 200px;
+            outline: none;
+        }
+        #quote-display {
+            position: absolute;
+            bottom: 5rem;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255, 255, 255, 0.6);
+            font-style: italic;
+            text-align: center;
+            max-width: 80%;
+            pointer-events: none;
+            font-weight: 300;
+        }
+        .loading-spinner {
+            display: none;
+            width: 1rem;
+            height: 1rem;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <div class="ui-overlay">
+        <h1 class="text-xl font-light tracking-widest uppercase">Zen Flow</h1>
+        <p class="text-xs">AI Augmented Kinetic Meditation</p>
+    </div>
+
+    <div id="controls">
+        <div id="ai-input-container">
+            <input type="text" id="aiPrompt" placeholder="Describe a mood (e.g. Solar flare)">
+            <button class="control-btn" id="weaveBtn">✨ Weave Mood</button>
+        </div>
+        <div class="flex gap-2">
+            <button class="control-btn" id="quoteBtn">✨ Get Zen</button>
+            <button class="control-btn" id="randomizeBtn">Shift Reality</button>
+            <button class="control-btn" id="clearBtn">Clear Space</button>
+        </div>
+        <div id="loader" class="loading-spinner"></div>
+    </div>
+
+    <div id="quote-display"></div>
+    <div class="hint">Click or drag to influence the flow</div>
+
+    <canvas id="flowCanvas"></canvas>
+
+    <script>
+        const apiKey = ""; // Provided at runtime
+        const canvas = document.getElementById('flowCanvas');
+        const ctx = canvas.getContext('2d');
+        const randomizeBtn = document.getElementById('randomizeBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const weaveBtn = document.getElementById('weaveBtn');
+        const quoteBtn = document.getElementById('quoteBtn');
+        const aiPromptInput = document.getElementById('aiPrompt');
+        const quoteDisplay = document.getElementById('quote-display');
+        const loader = document.getElementById('loader');
+
+        let width, height;
+        let particles = [];
+        let mouse = { x: -1000, y: -1000, active: false };
+        let hue = Math.random() * 360;
+        
+        // Dynamic Config (Managed by AI)
+        let config = {
+            particleCount: 150,
+            friction: 0.98,
+            mouseStrength: 0.5,
+            mouseRadius: 250,
+            gravity: 0.0001,
+            hueRange: 60,
+            baseHue: Math.random() * 360,
+            speed: 2
+        };
+
+        // --- Gemini Integration Helper ---
+        async function callGemini(prompt, systemInstruction, isJson = false) {
+            loader.style.display = 'block';
+            let retries = 0;
+            const maxRetries = 5;
+            
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: { parts: [{ text: systemInstruction }] }
+            };
+            
+            if (isJson) {
+                payload.generationConfig = {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: "OBJECT",
+                        properties: {
+                            baseHue: { type: "NUMBER" },
+                            hueRange: { type: "NUMBER" },
+                            friction: { type: "NUMBER" },
+                            gravity: { type: "NUMBER" },
+                            speed: { type: "NUMBER" },
+                            description: { type: "STRING" }
+                        }
+                    }
+                };
+            }
+
+            while (retries < maxRetries) {
+                try {
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    const result = await response.json();
+                    loader.style.display = 'none';
+                    return result.candidates?.[0]?.content?.parts?.[0]?.text;
+                } catch (e) {
+                    retries++;
+                    await new Promise(r => setTimeout(r, Math.pow(2, retries) * 1000));
+                }
+            }
+            loader.style.display = 'none';
+            return null;
+        }
+
+        class Particle {
+            constructor(x, y) {
+                this.init(x, y);
+            }
+
+            init(x, y) {
+                this.x = x || Math.random() * width;
+                this.y = y || Math.random() * height;
+                this.vx = (Math.random() - 0.5) * config.speed;
+                this.vy = (Math.random() - 0.5) * config.speed;
+                this.radius = Math.random() * 4 + 1;
+                this.colorHue = config.baseHue + (Math.random() * config.hueRange - config.hueRange/2);
+                this.alpha = 0;
+                this.maxAlpha = Math.random() * 0.5 + 0.2;
+                this.history = [];
+                this.historyLimit = Math.floor(Math.random() * 20) + 10;
+            }
+
+            update() {
+                const centerX = width / 2;
+                const centerY = height / 2;
+                
+                // Use gravity from config
+                this.vx += (centerX - this.x) * config.gravity;
+                this.vy += (centerY - this.y) * config.gravity;
+
+                if (mouse.active) {
+                    const dx = mouse.x - this.x;
+                    const dy = mouse.y - this.y;
+                    const dist = Math.hypot(dx, dy);
+                    if (dist < config.mouseRadius) {
+                        const force = (config.mouseRadius - dist) / config.mouseRadius;
+                        this.vx += dx * force * config.mouseStrength * 0.02;
+                        this.vy += dy * force * config.mouseStrength * 0.02;
+                        this.radius = Math.min(8, this.radius + 0.1);
+                    }
+                } else {
+                    this.radius = Math.max(2, this.radius - 0.05);
+                }
+
+                this.vx *= config.friction;
+                this.vy *= config.friction;
+
+                this.x += this.vx;
+                this.y += this.vy;
+
+                if (this.x < 0) this.x = width;
+                if (this.x > width) this.x = 0;
+                if (this.y < 0) this.y = height;
+                if (this.y > height) this.y = 0;
+
+                if (this.alpha < this.maxAlpha) this.alpha += 0.01;
+
+                this.history.push({ x: this.x, y: this.y });
+                if (this.history.length > this.historyLimit) this.history.shift();
+            }
+
+            draw() {
+                if (this.history.length > 2) {
+                    ctx.beginPath();
+                    ctx.moveTo(this.history[0].x, this.history[0].y);
+                    for (let i = 1; i < this.history.length; i++) {
+                        ctx.lineTo(this.history[i].x, this.history[i].y);
+                    }
+                    ctx.strokeStyle = `hsla(${this.colorHue}, 70%, 60%, ${this.alpha * 0.3})`;
+                    ctx.lineWidth = this.radius * 0.5;
+                    ctx.lineCap = 'round';
+                    ctx.stroke();
+                }
+
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = `hsla(${this.colorHue}, 80%, 70%, ${this.alpha})`;
+                ctx.fill();
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = `hsla(${this.colorHue}, 80%, 70%, ${this.alpha * 0.5})`;
+            }
+        }
+
+        // --- Features ---
+
+        async function weaveMood() {
+            const prompt = aiPromptInput.value || "Calm ocean breeze";
+            const system = "You are a visual physics engine. Translate the user's mood into physics parameters. Hue is 0-360. Range is 10-100. Friction is 0.90 to 0.99 (lower is thicker/slower). Gravity is 0.00001 to 0.0005. Speed is 0.5 to 5.0. Output valid JSON.";
+            
+            const result = await callGemini(prompt, system, true);
+            if (result) {
+                const newParams = JSON.parse(result);
+                config = { ...config, ...newParams };
+                // Pulse existing particles to new colors
+                particles.forEach(p => {
+                    p.colorHue = config.baseHue + (Math.random() * config.hueRange - config.hueRange/2);
+                });
+                quoteDisplay.textContent = newParams.description || "";
+                setTimeout(() => { quoteDisplay.textContent = ""; }, 5000);
+            }
+        }
+
+        async function getZenQuote() {
+            const system = "Provide a single, short, profound Zen-like quote or original thought about flow, light, or existence. Maximum 15 words.";
+            const quote = await callGemini("Generate a zen quote", system);
+            if (quote) {
+                quoteDisplay.style.opacity = 0;
+                setTimeout(() => {
+                    quoteDisplay.textContent = quote.replace(/"/g, '');
+                    quoteDisplay.style.transition = "opacity 2s";
+                    quoteDisplay.style.opacity = 1;
+                }, 500);
+            }
+        }
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            initParticles();
+        }
+
+        function initParticles() {
+            particles = [];
+            for (let i = 0; i < config.particleCount; i++) {
+                particles.push(new Particle());
+            }
+        }
+
+        function animate() {
+            ctx.fillStyle = 'rgba(5, 5, 5, 0.15)';
+            ctx.fillRect(0, 0, width, height);
+            ctx.shadowBlur = 0;
+
+            config.baseHue += 0.05;
+
+            particles.forEach(p => {
+                p.update();
+                p.draw();
+            });
+
+            requestAnimationFrame(animate);
+        }
+
+        // Event Listeners
+        weaveBtn.addEventListener('click', weaveMood);
+        quoteBtn.addEventListener('click', getZenQuote);
+        aiPromptInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') weaveMood(); });
+
+        window.addEventListener('mousedown', (e) => { mouse.active = true; updateMousePos(e); });
+        window.addEventListener('mousemove', (e) => { updateMousePos(e); });
+        window.addEventListener('mouseup', () => { mouse.active = false; });
+        
+        window.addEventListener('touchstart', (e) => { mouse.active = true; updateMousePos(e.touches[0]); }, { passive: false });
+        window.addEventListener('touchmove', (e) => { updateMousePos(e.touches[0]); e.preventDefault(); }, { passive: false });
+        window.addEventListener('touchend', () => { mouse.active = false; });
+
+        function updateMousePos(e) { mouse.x = e.clientX; mouse.y = e.clientY; }
+
+        randomizeBtn.addEventListener('click', () => {
+            config.baseHue = Math.random() * 360;
+            particles.forEach(p => {
+                p.vx *= 5; p.vy *= 5;
+                p.colorHue = config.baseHue + (Math.random() * 60 - 30);
+            });
+        });
+
+        clearBtn.addEventListener('click', () => {
+            particles.forEach(p => { p.alpha = 0; setTimeout(() => p.init(), 500); });
+        });
+
+        window.addEventListener('resize', resize);
+        resize();
+        animate();
+    </script>
+</body>
+</html>
